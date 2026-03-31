@@ -30,8 +30,9 @@ def generate_multinomial_dgp(
     corr: float = 0.0,
     price_range: Tuple[float, float] = (1.0, 10.0),
     seed: Optional[int] = None,
+    error_type: str = "probit"
 ) -> Tuple[pd.DataFrame, Dict[str, np.ndarray]]:
-    """Generate a panel dataset from a multinomial probit model.
+    """Generate a panel dataset from a multinomial probit / logit model.
 
     Parameters
     ----------
@@ -110,7 +111,14 @@ def generate_multinomial_dgp(
             prices_t = price_schedule[:, t]  # (J,)
             # Draw correlated normal errors
             z = rng.normal(size=n_products)
-            errors = chol @ z
+            if error_type == "probit":
+                z = rng.normal(size=n_products)
+                errors = chol @ z
+
+            elif error_type == "logit":
+                # multinomial logit-compatible random utility errors
+                # standard Gumbel(0,1)
+                errors = rng.gumbel(loc=0.0, scale=1.0, size=n_products)
             # Compute utilities
             utilities = beta_i - alpha_i * prices_t + errors
             # outside utility baseline (fixed)
