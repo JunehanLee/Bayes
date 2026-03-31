@@ -30,7 +30,8 @@ def generate_multinomial_dgp(
     corr: float = 0.0,
     price_range: Tuple[float, float] = (1.0, 10.0),
     seed: Optional[int] = None,
-    error_type: str = "probit"
+    error_type: str = "probit",
+    price_schedule: Optional[np.ndarray] = None
 ) -> Tuple[pd.DataFrame, Dict[str, np.ndarray]]:
     """Generate a panel dataset from a multinomial probit / logit model.
 
@@ -94,7 +95,16 @@ def generate_multinomial_dgp(
         )
     rng = np.random.default_rng(seed)
     price_low, price_high = price_range
-    price_schedule = rng.uniform(price_low, price_high, size=(n_products, n_periods))  # (J,T)
+    if price_schedule is None:
+        price_low, price_high = price_range
+        price_schedule = rng.uniform(
+        price_low,
+        price_high,
+        size=(n_products, n_periods),
+        )
+    else:
+        price_schedule = np.asarray(price_schedule)
+        assert price_schedule.shape == (n_products, n_periods)
 
     # Build covariance matrix for error terms
     Sigma = np.full((n_products, n_products), corr)
@@ -122,7 +132,7 @@ def generate_multinomial_dgp(
             # Compute utilities
             utilities = beta_i - alpha_i * prices_t + errors
             # outside utility baseline (fixed)
-            u0 = 0.0
+            u0 = 0.0 + errors[0]
 
             # choose among outside(0) + products(1..J)
             choice = int(np.argmax(np.concatenate(([u0], utilities))))  # 0..J
