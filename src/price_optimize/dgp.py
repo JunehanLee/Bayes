@@ -116,7 +116,6 @@ def generate_multinomial_dgp(
         chol = np.linalg.cholesky(Sigma)
 
     records = []
-
     for i in range(n_customers):
         alpha_i = float(alpha_arr[i])
         beta_i = beta_mat[i]
@@ -129,17 +128,17 @@ def generate_multinomial_dgp(
                 z = rng.normal(size=n_products)
                 errors_prod = chol @ z
                 # separate outside error
-                error_outside = rng.normal(loc=0.0, scale=1.0)
+                # error_outside = rng.normal(loc=0.0, scale=1.0)
 
             elif error_type == "logit":
                 errors_prod = rng.gumbel(loc=0.0, scale=1.0, size=n_products)
-                error_outside = rng.gumbel(loc=0.0, scale=1.0)
+                # error_outside = rng.gumbel(loc=0.0, scale=1.0)
 
             else:
                 raise ValueError("error_type must be 'probit' or 'logit'")
 
             utilities = beta_i - alpha_i * prices_t + errors_prod
-            u0 = error_outside
+            u0 = 0
 
             # choose among outside(0) + products(1..J)
             choice = int(np.argmax(np.concatenate(([u0], utilities))))  # 0..J
