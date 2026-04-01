@@ -106,33 +106,40 @@ def generate_multinomial_dgp(
         price_schedule = np.asarray(price_schedule)
         assert price_schedule.shape == (n_products, n_periods)
 
-    # Build covariance matrix for error terms
-    Sigma = np.full((n_products, n_products), corr)
-    np.fill_diagonal(Sigma, 1.0)
-    # Cholesky decomposition for sampling errors
-    chol = np.linalg.cholesky(Sigma)
-    # Preallocate arrays
-    records: List[Dict[str, float]] = []
+    if error_type == "probit":
+        if corr <= -1.0 / (n_products - 1) or corr >= 1.0:
+            raise ValueError(
+                f"corr must be in (-1/(J-1), 1); got {corr}"
+            )
+        Sigma = np.full((n_products, n_products), corr)
+        np.fill_diagonal(Sigma, 1.0)
+        chol = np.linalg.cholesky(Sigma)
+
+    records = []
+
     for i in range(n_customers):
         alpha_i = float(alpha_arr[i])
-        beta_i = beta_mat[i]  # (J,)
+        beta_i = beta_mat[i]
+
         for t in range(n_periods):
-            # Draw price vector for this customer and period
-            prices_t = price_schedule[:, t]  # (J,)
-            # Draw correlated normal errors
-            z = rng.normal(size=n_products)
+            prices_t = price_schedule[:, t]
+
             if error_type == "probit":
+                # product errors
                 z = rng.normal(size=n_products)
-                errors = chol @ z
+                errors_prod = chol @ z
+                # separate outside error
+                error_outside = rng.normal(loc=0.0, scale=1.0)
 
             elif error_type == "logit":
-                # multinomial logit-compatible random utility errors
-                # standard Gumbel(0,1)
-                errors = rng.gumbel(loc=0.0, scale=1.0, size=n_products)
-            # Compute utilities
-            utilities = beta_i - alpha_i * prices_t + errors
-            # outside utility baseline (fixed)
-            u0 = 0.0 + errors[0]
+                errors_prod = rng.gumbel(loc=0.0, scale=1.0, size=n_products)
+                error_outside = rng.gumbel(loc=0.0, scale=1.0)
+
+            else:
+                raise ValueError("error_type must be 'probit' or 'logit'")
+
+            utilities = beta_i - alpha_i * prices_t + errors_prod
+            u0 = error_outside
 
             # choose among outside(0) + products(1..J)
             choice = int(np.argmax(np.concatenate(([u0], utilities))))  # 0..J
