@@ -12,8 +12,10 @@ def fit_hier_bayes_mnl(
     price_prefix: str = "price_",   # price_1..price_J
     seed: int = 0,
     # priors (조정 가능)
+    mu_beta_mean: float = 0,
     mu_beta_sd: float = 2.0,
     sigma_beta_rate: float = 1.0,
+    mu_alpha_mean: float = 0,
     mu_alpha_sd: float = 2.0,
     sigma_alpha_rate: float = 1.0,
     alpha_lower: float = 0.0,
@@ -62,7 +64,7 @@ def fit_hier_bayes_mnl(
         # Hyperpriors for beta (brand preference)
         # -------------------------
         # 제품(브랜드)별 population mean/scale (j=1..J)
-        mu_beta    = pm.Normal("mu_beta", 0.0, mu_beta_sd, shape=J)
+        mu_beta    = pm.Normal("mu_beta", mu_beta_mean, mu_beta_sd, shape=J)
         sigma_beta = pm.Exponential("sigma_beta", sigma_beta_rate, shape=J)
 
         # 고객별 beta[i,j]
@@ -71,7 +73,7 @@ def fit_hier_bayes_mnl(
         # -------------------------
         # Hyperpriors for alpha (price sensitivity)
         # -------------------------
-        mu_alpha    = pm.Normal("mu_alpha", 0.0, mu_alpha_sd)
+        mu_alpha    = pm.Normal("mu_alpha", mu_alpha_mean, mu_alpha_sd)
         sigma_alpha = pm.Exponential("sigma_alpha", sigma_alpha_rate)
 
         # 고객별 alpha_i (양수 제약)
