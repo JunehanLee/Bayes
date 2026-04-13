@@ -104,7 +104,15 @@ def generate_multinomial_dgp(
         )
     else:
         price_schedule = np.asarray(price_schedule)
-        assert price_schedule.shape == (n_products, n_periods)
+        if not (
+            (price_schedule.ndim == 2 and price_schedule.shape == (n_products, n_periods))
+            or
+            (price_schedule.ndim == 3 and price_schedule.shape == (n_customers, n_periods, n_products))
+        ):
+            raise ValueError(
+                f"price_schedule must have shape {(n_products, n_periods)} "
+                f"or {(n_customers, n_periods, n_products)}; got {price_schedule.shape}"
+            )
 
     if error_type == "probit":
         if corr <= -1.0 / (n_products - 1) or corr >= 1.0:
@@ -121,7 +129,10 @@ def generate_multinomial_dgp(
         beta_i = beta_mat[i]
 
         for t in range(n_periods):
-            prices_t = price_schedule[:, t]
+            if price_schedule.ndim == 2:
+                prices_t = price_schedule[:, t]
+            else:
+                prices_t = price_schedule[i, t, :]
 
             if error_type == "probit":
                 # product errors
