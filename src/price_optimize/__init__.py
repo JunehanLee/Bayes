@@ -14,7 +14,9 @@ from .profit import (
     build_cf_price_tensor_personalized,
     simulate_cf_revenue_personalized,
     run_pricing_experiment_personalized,
-)
+    simulate_cf_choice_rate_personalized,
+    compute_choice_rate,
+)    
 
 __all__ = [
     "sample_random_coefficients",
@@ -34,4 +36,6 @@ __all__ = [
     "build_cf_price_tensor_personalized",
     "simulate_cf_revenue_personalized",
     "run_pricing_experiment_personalized",
+    "compute_choice_rate",
+    "simulate_cf_choice_rate_personalized"
 ]
