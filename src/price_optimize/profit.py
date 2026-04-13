@@ -26,11 +26,16 @@ class PricingExperimentResult:
     counterfactual_revenue_A_mean: float
     counterfactual_revenue_A_std: float
     counterfactual_revenue_A_values: np.ndarray
-    optimal_price_tensor: np.ndarray        # shape (N, T, J)
-    personalized_price_A: np.ndarray        # shape (N, T)
-    observed_price_path: np.ndarray         # shape (J, T)
-    period_results: List[PeriodOptimizationResult]
 
+    observed_choice_rate_A: float
+    counterfactual_choice_rate_A_mean: float
+    counterfactual_choice_rate_A_std: float
+    counterfactual_choice_rate_A_values: np.ndarray
+
+    optimal_price_tensor: np.ndarray
+    personalized_price_A: np.ndarray
+    observed_price_path: np.ndarray
+    period_results: List[PeriodOptimizationResult]
 
 # =========================================================
 # 2. Softmax and MNL probability helpers
@@ -548,9 +553,85 @@ def simulate_cf_revenue_personalized(
 
     return np.asarray(values, dtype=float)
 
+# =========================================================
+# 11. Compare the Choice rate of the target product under the true DGP
+# =========================================================
+
+def compute_choice_rate(
+    df: pd.DataFrame,
+    target_product_idx: int = 1,
+    choice_col: str = "choice",
+) -> float:
+    """
+    Compute unconditional choice rate for the target product:
+
+        P(choice == target_product_idx)
+
+    This includes outside-option observations in the denominator.
+    """
+    if choice_col not in df.columns:
+        raise ValueError(f"df must contain '{choice_col}'.")
+
+    y = df[choice_col].to_numpy()
+    return float(np.mean(y == target_product_idx))
+
+def simulate_cf_choice_rate_personalized(
+    generate_multinomial_dgp_func,
+    true_alpha_arr: np.ndarray,
+    true_beta_mat: np.ndarray,
+    price_tensor_cf: np.ndarray,
+    target_product_idx: int = 1,
+    n_rep: int = 100,
+    true_error_type: str = "probit",
+    base_seed: Optional[int] = None,
+    **dgp_kwargs: Any,
+) -> np.ndarray:
+    """
+    Simulate counterfactual choice rate for target product under true DGP.
+
+    Returns
+    -------
+    np.ndarray of shape (n_rep,)
+        Realised choice rate of target product in each simulation.
+    """
+    true_alpha_arr = np.asarray(true_alpha_arr, dtype=float)
+    true_beta_mat = np.asarray(true_beta_mat, dtype=float)
+    price_tensor_cf = np.asarray(price_tensor_cf, dtype=float)
+
+    if price_tensor_cf.ndim != 3:
+        raise ValueError("price_tensor_cf must have shape (N, T, J).")
+
+    n_customers, n_periods, n_products = price_tensor_cf.shape
+
+    values = []
+
+    for r in range(n_rep):
+        seed_r = None if base_seed is None else base_seed + r
+
+        df_cf, _ = generate_multinomial_dgp_func(
+            n_customers=n_customers,
+            n_products=n_products,
+            n_periods=n_periods,
+            beta_mat=true_beta_mat,
+            alpha_arr=true_alpha_arr,
+            price_schedule=price_tensor_cf,
+            seed=seed_r,
+            error_type=true_error_type,
+            **dgp_kwargs,
+        )
+
+        choice_rate_r = compute_choice_rate(
+            df=df_cf,
+            target_product_idx=target_product_idx,
+            choice_col="choice",
+        )
+        values.append(choice_rate_r)
+
+    return np.asarray(values, dtype=float)
+
 
 # =========================================================
-# 11. Full pricing experiment
+# 12. Full pricing experiment
 # =========================================================
 
 def run_pricing_experiment_personalized(
@@ -586,6 +667,12 @@ def run_pricing_experiment_personalized(
         choice_col="choice",
     )
 
+    observed_choice_rate_A = compute_choice_rate(
+        df=observed_df,
+        target_product_idx=target_product_idx,
+        choice_col="choice",
+    )
+
     period_results = optimize_price_path_A_personalized(
         observed_df=observed_df,
         est_alpha_arr=est_alpha_arr,
@@ -616,6 +703,18 @@ def run_pricing_experiment_personalized(
         **dgp_kwargs,
     )
 
+    cf_choice_rate_values = simulate_cf_choice_rate_personalized(
+        generate_multinomial_dgp_func=generate_multinomial_dgp_func,
+        true_alpha_arr=true_alpha_arr,
+        true_beta_mat=true_beta_mat,
+        price_tensor_cf=price_tensor_cf,
+        target_product_idx=target_product_idx,
+        n_rep=n_counterfactual_rep,
+        true_error_type=true_error_type,
+        base_seed=base_seed,
+        **dgp_kwargs,
+    )
+
     observed_price_path = extract_price_path(
         df=observed_df,
         n_periods=n_periods,
@@ -633,6 +732,12 @@ def run_pricing_experiment_personalized(
         counterfactual_revenue_A_mean=float(cf_values.mean()),
         counterfactual_revenue_A_std=float(cf_values.std(ddof=1)) if len(cf_values) > 1 else 0.0,
         counterfactual_revenue_A_values=cf_values,
+
+        observed_choice_rate_A=float(observed_choice_rate_A),
+        counterfactual_choice_rate_A_mean=float(cf_choice_rate_values.mean()),
+        counterfactual_choice_rate_A_std=float(cf_choice_rate_values.std(ddof=1)) if len(cf_choice_rate_values) > 1 else 0.0,
+        counterfactual_choice_rate_A_values=cf_choice_rate_values,
+
         optimal_price_tensor=price_tensor_cf.copy(),
         personalized_price_A=personalized_price_A,
         observed_price_path=observed_price_path.copy(),
