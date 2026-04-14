@@ -207,27 +207,26 @@ def compute_realized_revenue(
 def optimize_price_A_t_personalized(
     alpha_arr: np.ndarray,
     beta_mat: np.ndarray,
-    observed_price_vec_t: np.ndarray,
+    avg_price_vec: np.ndarray,
     price_grid: np.ndarray,
     target_product_idx: int = 1,
     period: Optional[int] = None,
 ) -> PeriodOptimizationResult:
     """
-    For one period t:
-    - B,C,... remain fixed at observed trip-t prices
-    - A is optimized separately for each customer over price_grid
+    Optimize A separately for each customer while fixing competing products
+    at their average observed prices across trips.
 
     Parameters
     ----------
     alpha_arr : shape (N,)
     beta_mat  : shape (N, J)
-    observed_price_vec_t : shape (J,)
-        Observed posted prices in trip t, common across customers.
+    avg_price_vec : shape (J,)
+        Average observed price vector across trips.
     price_grid : shape (G,)
     """
     alpha_arr = np.asarray(alpha_arr, dtype=float)
     beta_mat = np.asarray(beta_mat, dtype=float)
-    observed_price_vec_t = np.asarray(observed_price_vec_t, dtype=float)
+    avg_price_vec = np.asarray(avg_price_vec, dtype=float)
     price_grid = np.asarray(price_grid, dtype=float)
 
     if alpha_arr.ndim != 1:
@@ -236,10 +235,10 @@ def optimize_price_A_t_personalized(
         raise ValueError("beta_mat must be 2D.")
     if beta_mat.shape[0] != alpha_arr.shape[0]:
         raise ValueError("alpha_arr and beta_mat must match on first dimension.")
-    if observed_price_vec_t.ndim != 1:
-        raise ValueError("observed_price_vec_t must be 1D.")
-    if beta_mat.shape[1] != observed_price_vec_t.shape[0]:
-        raise ValueError("observed_price_vec_t length must match number of products.")
+    if avg_price_vec.ndim != 1:
+        raise ValueError("avg_price_vec must be 1D.")
+    if beta_mat.shape[1] != avg_price_vec.shape[0]:
+        raise ValueError("avg_price_vec length must match number of products.")
     if price_grid.ndim != 1 or len(price_grid) == 0:
         raise ValueError("price_grid must be a non-empty 1D array.")
 
@@ -252,12 +251,10 @@ def optimize_price_A_t_personalized(
     customer_revenue_curve = np.zeros((N, len(price_grid)), dtype=float)
 
     for i in range(N):
-        # customer i sees fixed competitor prices at trip t
-        # only A price varies over the grid
         for g, p in enumerate(price_grid):
-            price_vec_i = observed_price_vec_t.copy()
+            price_vec_i = avg_price_vec.copy()
             price_vec_i[j0] = p
-            price_mat_i = price_vec_i[None, :]  # shape (1, J)
+            price_mat_i = price_vec_i[None, :]
 
             rev_i = compute_expected_revenue_A_personalized(
                 alpha_arr=alpha_arr[i:i+1],
@@ -270,8 +267,7 @@ def optimize_price_A_t_personalized(
         best_idx = int(np.argmax(customer_revenue_curve[i, :]))
         optimal_price_A_vec[i] = float(price_grid[best_idx])
 
-    # total expected revenue at optimized personalized prices
-    price_mat_opt = np.tile(observed_price_vec_t, (N, 1))
+    price_mat_opt = np.tile(avg_price_vec, (N, 1))
     price_mat_opt[:, j0] = optimal_price_A_vec
 
     optimal_revenue_A = compute_expected_revenue_A_personalized(
@@ -283,11 +279,87 @@ def optimize_price_A_t_personalized(
 
     return PeriodOptimizationResult(
         period=-1 if period is None else int(period),
-        observed_price_vec=observed_price_vec_t.copy(),
+        observed_price_vec=avg_price_vec.copy(),
         optimal_price_A_vec=optimal_price_A_vec,
         optimal_revenue_A=float(optimal_revenue_A),
         customer_revenue_curve=customer_revenue_curve,
     )
+    # """
+    # For one period t:
+    # - B,C,... remain fixed at observed trip-t prices
+    # - A is optimized separately for each customer over price_grid
+
+    # Parameters
+    # ----------
+    # alpha_arr : shape (N,)
+    # beta_mat  : shape (N, J)
+    # observed_price_vec_t : shape (J,)
+    #     Observed posted prices in trip t, common across customers.
+    # price_grid : shape (G,)
+    # """
+    # alpha_arr = np.asarray(alpha_arr, dtype=float)
+    # beta_mat = np.asarray(beta_mat, dtype=float)
+    # observed_price_vec_t = np.asarray(observed_price_vec_t, dtype=float)
+    # price_grid = np.asarray(price_grid, dtype=float)
+
+    # if alpha_arr.ndim != 1:
+    #     raise ValueError("alpha_arr must be 1D.")
+    # if beta_mat.ndim != 2:
+    #     raise ValueError("beta_mat must be 2D.")
+    # if beta_mat.shape[0] != alpha_arr.shape[0]:
+    #     raise ValueError("alpha_arr and beta_mat must match on first dimension.")
+    # if observed_price_vec_t.ndim != 1:
+    #     raise ValueError("observed_price_vec_t must be 1D.")
+    # if beta_mat.shape[1] != observed_price_vec_t.shape[0]:
+    #     raise ValueError("observed_price_vec_t length must match number of products.")
+    # if price_grid.ndim != 1 or len(price_grid) == 0:
+    #     raise ValueError("price_grid must be a non-empty 1D array.")
+
+    # N, J = beta_mat.shape
+    # j0 = target_product_idx - 1
+    # if target_product_idx < 1 or target_product_idx > J:
+    #     raise ValueError("target_product_idx must be in {1, ..., J}.")
+
+    # optimal_price_A_vec = np.zeros(N, dtype=float)
+    # customer_revenue_curve = np.zeros((N, len(price_grid)), dtype=float)
+
+    # for i in range(N):
+    #     # customer i sees fixed competitor prices at trip t
+    #     # only A price varies over the grid
+    #     for g, p in enumerate(price_grid):
+    #         price_vec_i = observed_price_vec_t.copy()
+    #         price_vec_i[j0] = p
+    #         price_mat_i = price_vec_i[None, :]  # shape (1, J)
+
+    #         rev_i = compute_expected_revenue_A_personalized(
+    #             alpha_arr=alpha_arr[i:i+1],
+    #             beta_mat=beta_mat[i:i+1, :],
+    #             price_mat=price_mat_i,
+    #             target_product_idx=target_product_idx,
+    #         )
+    #         customer_revenue_curve[i, g] = rev_i
+
+    #     best_idx = int(np.argmax(customer_revenue_curve[i, :]))
+    #     optimal_price_A_vec[i] = float(price_grid[best_idx])
+
+    # # total expected revenue at optimized personalized prices
+    # price_mat_opt = np.tile(observed_price_vec_t, (N, 1))
+    # price_mat_opt[:, j0] = optimal_price_A_vec
+
+    # optimal_revenue_A = compute_expected_revenue_A_personalized(
+    #     alpha_arr=alpha_arr,
+    #     beta_mat=beta_mat,
+    #     price_mat=price_mat_opt,
+    #     target_product_idx=target_product_idx,
+    # )
+
+    # return PeriodOptimizationResult(
+    #     period=-1 if period is None else int(period),
+    #     observed_price_vec=observed_price_vec_t.copy(),
+    #     optimal_price_A_vec=optimal_price_A_vec,
+    #     optimal_revenue_A=float(optimal_revenue_A),
+    #     customer_revenue_curve=customer_revenue_curve,
+    # )
 
 
 # =========================================================
@@ -307,9 +379,11 @@ def optimize_price_path_A_personalized(
 ) -> List[PeriodOptimizationResult]:
     """
     For each period t:
-    - use observed period-t posted price vector
-    - keep competitors fixed
+    - fix B,C,... at their average observed prices across trips
     - optimize A separately for each customer
+
+    Note:
+    The competitor prices are the same for every period in this baseline.
     """
     observed_price_path = extract_price_path(
         df=observed_df,
@@ -319,15 +393,15 @@ def optimize_price_path_A_personalized(
         price_col_prefix=price_col_prefix,
     )
 
+    avg_price_vec = observed_price_path.mean(axis=1)  # shape (J,)
+
     results: List[PeriodOptimizationResult] = []
 
     for t in range(n_periods):
-        observed_price_vec_t = observed_price_path[:, t]
-
         result_t = optimize_price_A_t_personalized(
             alpha_arr=est_alpha_arr,
             beta_mat=est_beta_mat,
-            observed_price_vec_t=observed_price_vec_t,
+            avg_price_vec=avg_price_vec,
             price_grid=price_grid,
             target_product_idx=target_product_idx,
             period=t,
@@ -335,6 +409,36 @@ def optimize_price_path_A_personalized(
         results.append(result_t)
 
     return results
+    # """
+    # For each period t:
+    # - use observed period-t posted price vector
+    # - keep competitors fixed
+    # - optimize A separately for each customer
+    # """
+    # observed_price_path = extract_price_path(
+    #     df=observed_df,
+    #     n_periods=n_periods,
+    #     n_products=n_products,
+    #     period_col=period_col,
+    #     price_col_prefix=price_col_prefix,
+    # )
+
+    # results: List[PeriodOptimizationResult] = []
+
+    # for t in range(n_periods):
+    #     observed_price_vec_t = observed_price_path[:, t]
+
+    #     result_t = optimize_price_A_t_personalized(
+    #         alpha_arr=est_alpha_arr,
+    #         beta_mat=est_beta_mat,
+    #         observed_price_vec_t=observed_price_vec_t,
+    #         price_grid=price_grid,
+    #         target_product_idx=target_product_idx,
+    #         period=t,
+    #     )
+    #     results.append(result_t)
+
+    # return results
 
 
 # =========================================================
@@ -374,121 +478,121 @@ def build_cf_price_tensor_personalized(
 # 9. DGP with support for common or personalized price schedule
 # =========================================================
 
-def generate_multinomial_dgp(
-    n_customers: int,
-    n_products: int,
-    n_periods: int,
-    beta_mat: Optional[np.ndarray] = None,
-    alpha_arr: Optional[np.ndarray] = None,
-    price_schedule: Optional[np.ndarray] = None,
-    price_range: Tuple[float, float] = (1.0, 3.0),
-    seed: Optional[int] = None,
-    error_type: str = "probit",
-) -> Tuple[pd.DataFrame, Dict[str, np.ndarray]]:
-    """
-    Generate panel data from multinomial choice model.
+# def generate_multinomial_dgp(
+#     n_customers: int,
+#     n_products: int,
+#     n_periods: int,
+#     beta_mat: Optional[np.ndarray] = None,
+#     alpha_arr: Optional[np.ndarray] = None,
+#     price_schedule: Optional[np.ndarray] = None,
+#     price_range: Tuple[float, float] = (1.0, 3.0),
+#     seed: Optional[int] = None,
+#     error_type: str = "probit",
+# ) -> Tuple[pd.DataFrame, Dict[str, np.ndarray]]:
+#     """
+#     Generate panel data from multinomial choice model.
 
-    Utility:
-        U_ijt = beta_ij - alpha_i * price_ijt + eps_ijt
-        U_i0t = 0 + eps_i0t
+#     Utility:
+#         U_ijt = beta_ij - alpha_i * price_ijt + eps_ijt
+#         U_i0t = 0 + eps_i0t
 
-    Choice:
-        y_it = argmax over {0,1,...,J}
+#     Choice:
+#         y_it = argmax over {0,1,...,J}
 
-    Parameters
-    ----------
-    price_schedule : optional
-        Either:
-        - shape (J, T): common posted prices by trip
-        - shape (N, T, J): customer-trip personalized prices
-        If None, common posted prices are randomly generated with shape (J, T).
-    error_type : {"probit", "logit"}
-        probit -> Normal(0,1) errors
-        logit  -> Gumbel(0,1) errors
-    """
-    rng = np.random.default_rng(seed)
+#     Parameters
+#     ----------
+#     price_schedule : optional
+#         Either:
+#         - shape (J, T): common posted prices by trip
+#         - shape (N, T, J): customer-trip personalized prices
+#         If None, common posted prices are randomly generated with shape (J, T).
+#     error_type : {"probit", "logit"}
+#         probit -> Normal(0,1) errors
+#         logit  -> Gumbel(0,1) errors
+#     """
+#     rng = np.random.default_rng(seed)
 
-    if beta_mat is None:
-        beta_mat = rng.normal(loc=1.0, scale=0.5, size=(n_customers, n_products))
-    else:
-        beta_mat = np.asarray(beta_mat, dtype=float)
+#     if beta_mat is None:
+#         beta_mat = rng.normal(loc=1.0, scale=0.5, size=(n_customers, n_products))
+#     else:
+#         beta_mat = np.asarray(beta_mat, dtype=float)
 
-    if alpha_arr is None:
-        alpha_arr = np.abs(rng.normal(loc=1.0, scale=0.5, size=n_customers))
-    else:
-        alpha_arr = np.asarray(alpha_arr, dtype=float)
+#     if alpha_arr is None:
+#         alpha_arr = np.abs(rng.normal(loc=1.0, scale=0.5, size=n_customers))
+#     else:
+#         alpha_arr = np.asarray(alpha_arr, dtype=float)
 
-    if beta_mat.shape != (n_customers, n_products):
-        raise ValueError("beta_mat must have shape (n_customers, n_products).")
-    if alpha_arr.shape != (n_customers,):
-        raise ValueError("alpha_arr must have shape (n_customers,).")
+#     if beta_mat.shape != (n_customers, n_products):
+#         raise ValueError("beta_mat must have shape (n_customers, n_products).")
+#     if alpha_arr.shape != (n_customers,):
+#         raise ValueError("alpha_arr must have shape (n_customers,).")
 
-    if price_schedule is None:
-        price_schedule = rng.uniform(
-            price_range[0],
-            price_range[1],
-            size=(n_products, n_periods),
-        )
-    else:
-        price_schedule = np.asarray(price_schedule, dtype=float)
+#     if price_schedule is None:
+#         price_schedule = rng.uniform(
+#             price_range[0],
+#             price_range[1],
+#             size=(n_products, n_periods),
+#         )
+#     else:
+#         price_schedule = np.asarray(price_schedule, dtype=float)
 
-    common_price_mode = False
-    personalized_price_mode = False
+#     common_price_mode = False
+#     personalized_price_mode = False
 
-    if price_schedule.ndim == 2 and price_schedule.shape == (n_products, n_periods):
-        common_price_mode = True
-    elif price_schedule.ndim == 3 and price_schedule.shape == (n_customers, n_periods, n_products):
-        personalized_price_mode = True
-    else:
-        raise ValueError(
-            "price_schedule must have shape (J, T) or (N, T, J)."
-        )
+#     if price_schedule.ndim == 2 and price_schedule.shape == (n_products, n_periods):
+#         common_price_mode = True
+#     elif price_schedule.ndim == 3 and price_schedule.shape == (n_customers, n_periods, n_products):
+#         personalized_price_mode = True
+#     else:
+#         raise ValueError(
+#             "price_schedule must have shape (J, T) or (N, T, J)."
+#         )
 
-    rows = []
+#     rows = []
 
-    for i in range(n_customers):
-        for t in range(n_periods):
-            if common_price_mode:
-                price_vec = price_schedule[:, t]
-            else:
-                price_vec = price_schedule[i, t, :]
+#     for i in range(n_customers):
+#         for t in range(n_periods):
+#             if common_price_mode:
+#                 price_vec = price_schedule[:, t]
+#             else:
+#                 price_vec = price_schedule[i, t, :]
 
-            deterministic_util = beta_mat[i, :] - alpha_arr[i] * price_vec
+#             deterministic_util = beta_mat[i, :] - alpha_arr[i] * price_vec
 
-            if error_type == "probit":
-                eps0 = rng.normal(loc=0.0, scale=1.0)
-                epsj = rng.normal(loc=0.0, scale=1.0, size=n_products)
-            elif error_type == "logit":
-                # standard Gumbel errors induce multinomial logit choice rule
-                eps0 = rng.gumbel(loc=0.0, scale=1.0)
-                epsj = rng.gumbel(loc=0.0, scale=1.0, size=n_products)
-            else:
-                raise ValueError("error_type must be 'probit' or 'logit'.")
+#             if error_type == "probit":
+#                 eps0 = rng.normal(loc=0.0, scale=1.0)
+#                 epsj = rng.normal(loc=0.0, scale=1.0, size=n_products)
+#             elif error_type == "logit":
+#                 # standard Gumbel errors induce multinomial logit choice rule
+#                 eps0 = rng.gumbel(loc=0.0, scale=1.0)
+#                 epsj = rng.gumbel(loc=0.0, scale=1.0, size=n_products)
+#             else:
+#                 raise ValueError("error_type must be 'probit' or 'logit'.")
 
-            util_full = np.concatenate(
-                [[0.0 + eps0], deterministic_util + epsj],
-                axis=0,
-            )
-            choice = int(np.argmax(util_full))
+#             util_full = np.concatenate(
+#                 [[0.0 + eps0], deterministic_util + epsj],
+#                 axis=0,
+#             )
+#             choice = int(np.argmax(util_full))
 
-            row = {
-                "customer": i,
-                "period": t,
-                "choice": choice,
-            }
-            for j in range(n_products):
-                row[f"price_{j+1}"] = float(price_vec[j])
+#             row = {
+#                 "customer": i,
+#                 "period": t,
+#                 "choice": choice,
+#             }
+#             for j in range(n_products):
+#                 row[f"price_{j+1}"] = float(price_vec[j])
 
-            rows.append(row)
+#             rows.append(row)
 
-    df = pd.DataFrame(rows)
+#     df = pd.DataFrame(rows)
 
-    meta = {
-        "alpha_arr": alpha_arr,
-        "beta_mat": beta_mat,
-        "price_schedule": price_schedule,
-    }
-    return df, meta
+#     meta = {
+#         "alpha_arr": alpha_arr,
+#         "beta_mat": beta_mat,
+#         "price_schedule": price_schedule,
+#     }
+#     return df, meta
 
 
 # =========================================================
